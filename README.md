@@ -1,5 +1,7 @@
 # HackSynth: LLM Agent and Evaluation Framework for Autonomous Penetration Testing
+The paper can be found on [arXiv](https://arxiv.org/abs/2412.01778).
 
+## Introduction
 <img align="left" style="width: 160px;" src="assets/logo.gif" alt="HackSynth Logo"/>
 
 We introduce HackSynth, a novel Large Language Model (LLM)-based agent capable of autonomous penetration testing.
@@ -27,6 +29,19 @@ These benchmarks include two hundred challenges across diverse domains and diffi
     ```
     The `benchmark.json` should be one of the generated `benchmark_solved.json` files, or an equivalently structured file.
     The configuration files used by us for the measurements in the paper are also available in the configs folder.
+
+## Citing
+```bibtex
+@misc{muzsai2024hacksynthllmagentevaluation,
+      title={HackSynth: LLM Agent and Evaluation Framework for Autonomous Penetration Testing}, 
+      author={Lajos Muzsai and David Imolai and András Lukács},
+      year={2024},
+      eprint={2412.01778},
+      archivePrefix={arXiv},
+      primaryClass={cs.CR},
+      url={https://arxiv.org/abs/2412.01778}, 
+}
+```
 
 ## License
 The project uses the GNU AGPLv3 license.
