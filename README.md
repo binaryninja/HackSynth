@@ -30,7 +30,8 @@ These benchmarks include two hundred challenges across diverse domains and diffi
     The `benchmark.json` should be one of the generated `benchmark_solved.json` files, or an equivalently structured file.
     The configuration files used by us for the measurements in the paper are also available in the configs folder.
 
-## Citing
+## How to Cite
+If you use this code in your work or research, please cite the corresponding paper:
 ```bibtex
 @misc{muzsai2024hacksynthllmagentevaluation,
       title={HackSynth: LLM Agent and Evaluation Framework for Autonomous Penetration Testing}, 
