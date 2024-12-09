@@ -43,6 +43,10 @@ If you use this code in your work or research, please cite the corresponding pap
       url={https://arxiv.org/abs/2412.01778}, 
 }
 ```
+## Contributors
+- Lajos Muzsai (muzsailajos@protonmail.com)
+- David Imolai (david@imol.ai)
+- András Lukács (andras.lukacs@ttk.elte.hu)
 
 ## License
 The project uses the GNU AGPLv3 license.
