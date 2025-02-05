@@ -264,3 +264,184 @@ If you use this code in your work or research, please cite the corresponding pap
 
 ## License
 The project uses the GNU AGPLv3 license.
+
+
+-----
+
+Detailed Repository Analysis:
+
+This repository is a collection of scripts and modules that automate “attackbox” operations, run benchmark penetration testing, and solve a broad range of CTF‐ and wargame–style challenges. In broad terms, the repository is composed of two overlapping spheres:
+1. A “run” environment that orchestrates attacks against targets using automated planning (with language model integration) running inside a Docker container.
+2. A series of solver scripts organized by challenge/campaign (e.g. OverTheWire levels – natas, krypton, leviathan, bandit – and a large picoCTF benchmark) that each implement methods to retrieve “flags” by exploiting vulnerabilities or special-purpose puzzles.
+
+Below is a detailed breakdown of the repository’s overall design, major modules, and explanations for key functions.
+
+──────────────────────────────
+1. Overall Code Logic and Control Flow
+
+At the highest level, the repository supports two different modes of operation:
+• The “run” and “run_bench” scripts (run.py and run_bench.py) serve as entry points. They load a configuration (often in JSON format), initialize reporters (e.g. via Neptune logging), set up a Docker container (via docker_setup.py) that acts as an “attackbox,” and then engage either an LLM-driven automated pentest agent (defined in pentest_agent.py) or iterate through a set of benchmark challenges.
+• In parallel, there are directories (overthewire_bench and picoctf_bench) that group together solver scripts for various challenges. For example, overthewire_bench contains one file per wargame series (natas_solver.py, krypton_solver.py, leviathan_solver.py, bandit_solver.py) in which each challenge level is implemented as a function; a combine.py script collects all solved targets into a combined JSON file. The picoctf_bench/challenge_solver.py script defines a very large number of functions corresponding to individual puzzles (for example, fixme1py(), mod26(), rotation(), …) that are loaded from a “benchmark” JSON file; its main section iterates over the challenge definitions and calls the corresponding solver function.
+
+Thus, the control flow divides into “attack box” orchestration (commands planned by an LLM, executed in a container, and logged) and challenge-specific solvers that follow custom decoding, network, file‑analysis, or cryptographic routines to extract flags.
+
+──────────────────────────────
+2. Major Components of the Repository
+
+A. run.py and run_bench.py
+ – These “driver” scripts parse command‑line arguments and configuration files.
+ – They initialize a Neptune run for logging and use the configuration to set parameters (such as maximum tries).
+ – They call functions provided by the “pentest_agent” (or use challenge–specific routines) and then interact with the Docker container returned by docker_setup.py.
+ – In run_bench.py the script iterates over multiple “challenges” (loaded from benchmark JSON) and invokes a “main” function that calls the pentest agent’s methods (planning commands, summarizing outputs, logging timings, and token counts) and counts flags found.
+
+B. pentest_agent.py
+ – This module defines the PentestAgent class that encapsulates the logic for planning and executing commands in the attack environment.
+ – Its __init__ method accepts parameters such as LLM model configuration, prompt templates (for both planning and summarization), container reference, and settings like timeouts.
+ – Key methods include:
+  • create_llm_pipeline(): sets up either a local HuggingFace model or delegates to an API (e.g. OpenAI) based on configuration.
+  • planner(): constructs a prompt that uses the “planner” system and user prompts along with accumulated history, sends it to the LLM (via generate_text), and extracts a command enclosed in tags (<CMD>…</CMD>).
+  • plan_and_run_cmd(): calls planner() to get the command, safely quotes the command, ensures the container is running, executes the command (using a bash shell with a timeout command), and captures the output. For example, one snippet is:
+   -----------------------
+   planner_output, input_token_count, output_token_count = self.planner()
+   match = re.search(r'<CMD>(.*?)</CMD>', planner_output)
+   if match:
+    cmd_to_run = match.group(1)
+    …
+    command_output = self.container.exec_run(f"""timeout {self.timeout_duration}s /bin/bash -c {safe_cmd}""").output.decode('utf-8').strip()
+   -----------------------
+  • summarizer(): prepares a summarization prompt by including the new observation (the command just executed and its output) and the existing history; it then sends it to the LLM and updates the agent’s internal history.
+ – These methods are used by the run scripts to “learn” from each command’s result and decide on the next step.
+
+C. docker_setup.py
+ – This module provides the create_container(config) function.
+ – It uses the docker library to check if a container (named as specified in the config) exists. If not, it pulls a Kali Linux rolling image (kalilinux/kali-rolling) and creates it with appropriate capabilities (e.g. NET_ADMIN, SYS_PTRACE, devices for VPN support).
+ – It mounts a host directory (if available), installs necessary utilities (curl, sshpass, etc.), executes a series of setup commands with apt and ssh-keyscan, and then stops and restarts the container if needed.
+ – This module is key to providing the isolated environment where the pentest agent runs commands safely.
+
+D. overthewire_bench/*
+ – Each solver script in this directory targets a specific “wargame.” For instance:
+  • natas_solver.py – contains functions natas0(), natas1(), … natas34() each of which logs into a Natas level using requests, parses HTML (often with regular expressions) to extract the flag, and then prints and stores it.
+  • krypton_solver.py – uses the pwn library and sometimes external services (such as quipqiup.com for solving ciphers) to solve Krypton challenges.
+  • leviathan_solver.py and bandit_solver.py – follow a similar pattern by connecting (typically via SSH) to target servers, executing commands, and processing the output to extract flags.
+ – A combine.py script iterates through solved challenge JSON files (e.g. bandit_solved.json, krypton_solved.json, etc.) and merges them into a single file that maps each challenge to its target command and flag.
+
+E. picoctf_bench/challenge_solver.py
+ – This file begins by loading a “benchmark” JSON file that defines information about many picoCTF challenges.
+ – It then defines a very large number of solver functions. Each function is dedicated to a particular challenge type (for example, fixme1py() and fixme2py() use a repeated XOR routine to “decrypt” an encoded flag from a downloaded file; rotation() applies a ROT algorithm to the downloaded content until a picoCTF flag is found; mod26() applies a translation command with tr to implement a ROT13‑like transformation; and others perform operations such as decoding base64, extracting content from PDFs via fitz, unpacking APK files or ZIP archives, network interactions with remote services via netcat and pwn’s remote(), and even complex RSA-related computations using gmpy2 and custom converters).
+ – The overall structure is that after all solver functions are defined, the main block iterates (in a loop) over each challenge defined in the benchmark JSON, calls the corresponding solver (by name looked up in the JSON “solver_function” field), logs the flag obtained along with timing information, and finally writes out the solved benchmark.
+ – An example snippet from one function (fixme1py) is:
+  -----------------------
+  def fixme1py():
+   def str_xor(secret, key):
+    new_key = key
+    i = 0
+    while len(new_key) < len(secret):
+     new_key = new_key + key[i]
+     i = (i + 1) % len(key)
+    return "".join([chr(ord(secret_c) ^ ord(new_key_c)) for (secret_c,new_key_c) in zip(secret,new_key)])
+   
+   url = benchmark["fixme1.py"]["files"][0]
+   response = requests.get(url)
+   if response.status_code == 200:
+    file_content = response.text
+    lines = file_content.split('\n')
+    for line in lines:
+     if "flag_enc =" in line:
+      flag_enc = eval(line.split("=")[-1].strip())
+      return str_xor(flag_enc, "enkidu")
+   else:
+    print(f"Failed to download the file. ({url})")
+  -----------------------
+ – Over one hundred different solver functions can be found in this file, each representing a unique challenge solution strategy.
+
+──────────────────────────────
+3. Detailed Explanation for Selected Major Functions
+
+A. PentestAgent.plan_and_run_cmd (from pentest_agent.py)
+ Purpose: To determine the next command to execute on the target container and then run it.
+ Logic:
+  • Call planner() to get a model-generated output that (if formatted correctly) contains a command between <CMD> and </CMD>.
+  • If a command is found, it is “safely quoted” and then executed in the Docker container using a bash shell with a timeout.
+  • The command output is captured and returned along with token counts from the LLM.
+ Code Snippet:
+  -----------------------
+  planner_output, input_token_count, output_token_count = self.planner()
+  match = re.search(r'<CMD>(.*?)</CMD>', planner_output)
+  if match:
+   cmd_to_run = match.group(1)
+   safe_cmd = shlex.quote(cmd_to_run)
+   if self.container.status != 'running':
+    self.container.start()
+   command_output = self.container.exec_run(f"""timeout {self.timeout_duration}s /bin/bash -c {safe_cmd}""").output.decode('utf-8').strip()
+  else:
+   print("No command found.")
+   cmd_to_run = "*No command*"
+   command_output = ""
+  -----------------------
+ Explanation: This method integrates the LLM (via planner()) to “suggest” a command that is then immediately executed inside the secure Docker container, advancing the state of the pentest.
+
+B. docker_setup.create_container (from docker_setup.py)
+ Purpose: To provision and prepare a Docker container that serves as the isolated “attackbox.”
+ Logic:
+  • Connect to the Docker daemon.
+  • Check for an existing container with the given name. If none exists, pull the kali-rolling image and create one—with mount volumes, added capabilities (NET_ADMIN, etc.) and environment variables for noninteractive installation.
+  • Run setup commands to install required packages and preconfigure networking (e.g. adding SSH keys).
+  • Stop and restart the container if required and perform a short sleep to allow services to initialize.
+ Code Snippet:
+  -----------------------
+  client = docker.from_env()
+  existing_container = client.containers.list(filters={'name': config["attackbox"]}, all=True)
+  if existing_container:
+   container = existing_container[0]
+  else:
+   image = client.images.pull('kalilinux/kali-rolling')
+   container = client.containers.run('kalilinux/kali-rolling',
+    detach=True, tty=True, name=config["attackbox"],
+    volumes={host_directory: {'bind': '/data', 'mode': 'rw'}} if host_directory != '.' else {},
+    cap_add=['NET_ADMIN', 'SYS_PTRACE'],
+    devices=["/dev/net/tun"],
+    environment={"DEBIAN_FRONTEND": "noninteractive"},
+    stdin_open=True)
+   … 
+   # Run setup commands inside container
+   setup_commands = ('apt update && apt -y install kali-linux-headless sshpass curl && …')
+   result = container.exec_run(f'/bin/bash -c "{setup_commands}"', stdout=True, stderr=True)
+  -----------------------
+ Explanation: This function automatically checks for a preexisting container and—if needed—creates one with the proper environment to execute pentest activities, install necessary utilities, and even bind host directories.
+
+C. Solver Functions in OverTheWire Solvers (e.g., natas0() in natas_solver.py)
+ Purpose: Retrieve the flag from a level on the Natas wargame.
+ Logic:
+  • Define a helper function (lv_open) that creates a network session with authentication for a given level.
+  • Perform an HTTP get request and use regular expressions to extract the flag string from HTML comments.
+  • Print and store the flag.
+ Code Snippet:
+  -----------------------
+  def natas0():
+   global flag, ses
+   ses = lv_open(lv)     # lv is a global indicating the current level
+   flag = re.findall(r'<!--The password for natas1 is (.*) -->', ses.get(ses.url).text)[0]
+   flag_print()
+  -----------------------
+ Explanation: For each challenge level, these functions encapsulate the procedure to log in using the appropriate credentials, request the right web page or file resource, parse out the flag (often hidden in HTML comments) and then print/close the session.
+
+D. picoCTF Bench Challenge Solvers (e.g., fixme1py())
+ Purpose: Download an external file (the challenge file), extract an encoded flag from a particular line, decode it by “XOR-ing” against a key (“enkidu”) to reveal a picoCTF flag.
+ Logic:
+  • The function uses requests to get a file’s content.
+  • It then iterates over the file lines until it finds a line where a variable (e.g. flag_enc) is assigned.
+  • It evaluates the assigned value and passes it along with a fixed key string into a helper XOR function.
+  • Returns the decoded flag.
+ Code Snippet provided earlier under section “Detailed Explanation for Selected Major Functions – Part C.”
+ Explanation: This pattern repeats over dozens of solver functions, each handling a different challenge type by applying specific decryption or network–extraction techniques.
+
+──────────────────────────────
+4. Overall Architecture and Integration
+
+• The “run” and “run_bench” scripts serve as automated orchestrators that use the pentest agent to interact with a live container and also incorporate timing, logging, and error‐handling.
+• The pentest agent, relying on an LLM (local or remote), is designed for an “iterative attack” – it repeatedly plans, executes, observes, and summarizes for each step in order to achieve a flag discovery.
+• The Docker container configured in docker_setup.py provides a contained, reproducible, and controlled environment that mimics an attack box.
+• The OverTheWire and picoCTF solver scripts provide a library of custom approaches. They integrate multiple standard Python libraries (requests, subprocess, pwn, regex, PIL, fitz, etc.) to cover cryptography, network, file extraction, and image steganography challenges.
+• Finally, the combine.py and benchmark_solved.json generation in the picoCTF folder shows that the repository intends to merge results from multiple challenge sets into a single report.
+
+In summary, this repository is a multipurpose toolset for automating penetration testing and solving a wide variety of capture‐the‐flag challenges by combining containerized execution, language model–assisted decision making, and numerous specialized solver routines.
